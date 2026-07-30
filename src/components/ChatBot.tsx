@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { MessageSquare, Send, X, Sparkles, Compass, HelpCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { chatApi } from "../lib/geminiClient";
 
 interface ChatBotProps {
   activeItinerary: any;
@@ -60,30 +61,16 @@ export default function ChatBot({ activeItinerary }: ChatBotProps) {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messages: updatedMessages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          activeItinerary,
-        }),
-      });
+      const assistantResponseContent = await chatApi(
+        updatedMessages.map((m) => ({ role: m.role, content: m.content })),
+        activeItinerary
+      );
 
-      if (!response.ok) {
-        throw new Error("Failed to send message to assistant.");
-      }
-
-      const data = await response.json();
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: data.content,
+          content: assistantResponseContent,
           timestamp: new Date(),
         },
       ]);
@@ -110,7 +97,7 @@ export default function ChatBot({ activeItinerary }: ChatBotProps) {
       if (line.trim().startsWith("- ") || line.trim().startsWith("* ")) {
         const content = line.trim().substring(2);
         return (
-          <li key={lineIdx} className="ml-4 list-disc text-xs sm:text-sm my-0.5 leading-relaxed">
+          <li key={`line-${lineIdx}`} className="ml-4 list-disc text-xs sm:text-sm my-0.5 leading-relaxed">
             {renderBoldText(content)}
           </li>
         );
@@ -119,10 +106,9 @@ export default function ChatBot({ activeItinerary }: ChatBotProps) {
       // Check for numbered lists
       const numberedMatch = line.trim().match(/^(\d+)\.\s(.*)/);
       if (numberedMatch) {
-        const num = numberedMatch[1];
         const content = numberedMatch[2];
         return (
-          <li key={lineIdx} className="ml-4 list-decimal text-xs sm:text-sm my-0.5 leading-relaxed">
+          <li key={`line-${lineIdx}`} className="ml-4 list-decimal text-xs sm:text-sm my-0.5 leading-relaxed">
             {renderBoldText(content)}
           </li>
         );
@@ -130,12 +116,12 @@ export default function ChatBot({ activeItinerary }: ChatBotProps) {
 
       // Check for empty line
       if (line.trim() === "") {
-        return <div key={lineIdx} className="h-2" />;
+        return <div key={`empty-${lineIdx}`} className="h-2" />;
       }
 
       // Regular line
       return (
-        <p key={lineIdx} className="text-xs sm:text-sm leading-relaxed my-0.5">
+        <p key={`line-${lineIdx}`} className="text-xs sm:text-sm leading-relaxed my-0.5">
           {renderBoldText(line)}
         </p>
       );
@@ -147,7 +133,7 @@ export default function ChatBot({ activeItinerary }: ChatBotProps) {
     const parts = text.split(/\*\*([^*]+)\*\*/g);
     return parts.map((part, i) => {
       if (i % 2 === 1) {
-        return <strong key={i} className="font-bold text-[#33332D]">{part}</strong>;
+        return <strong key={`bold-${i}-${part.slice(0, 10)}`} className="font-bold text-[#33332D]">{part}</strong>;
       }
       return part;
     });
@@ -239,9 +225,10 @@ export default function ChatBot({ activeItinerary }: ChatBotProps) {
             <div className="flex-1 overflow-y-auto p-4 space-y-4 flex flex-col">
               {messages.map((message, idx) => {
                 const isUser = message.role === "user";
+                const msgKey = message.id || `msg-${idx}-${message.timestamp ? message.timestamp.getTime() : idx}`;
                 return (
                   <div
-                    key={idx}
+                    key={msgKey}
                     className={`flex ${isUser ? "justify-end" : "justify-start"} items-start gap-2.5 max-w-[85%] ${
                       isUser ? "self-end" : "self-start"
                     }`}

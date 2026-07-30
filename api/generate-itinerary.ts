@@ -1,31 +1,6 @@
-import express from "express";
-import path from "path";
-import { createServer as createViteServer } from "vite";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI } from "@google/genai";
-import dotenv from "dotenv";
 
-dotenv.config();
-
-const app = express();
-const PORT = 3000;
-
-app.use(express.json());
-
-// Lazy-loaded Gemini AI client
-let aiInstance: GoogleGenAI | null = null;
-
-function getAIClient(): GoogleGenAI {
-  if (!aiInstance) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY environment variable is missing.");
-    }
-    aiInstance = new GoogleGenAI({ apiKey });
-  }
-  return aiInstance;
-}
-
-// Helper function to safely parse Gemini JSON responses
 function parseGeminiJsonResponse(text: string): any {
   if (!text) {
     throw new Error("Empty response received from AI model.");
@@ -89,10 +64,25 @@ async function generateWithFallback(ai: GoogleGenAI, params: any) {
   throw lastError || new Error("Failed to generate content from AI model.");
 }
 
-// Endpoint to generate itineraries
-app.post("/api/generate-itinerary", async (req, res) => {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,PATCH,DELETE,POST,PUT");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed. Use POST." });
+  }
+
   try {
-    const { destination, days, interests } = req.body;
+    const { destination, days, interests } = req.body || {};
 
     if (!destination || !days) {
       return res.status(400).json({ error: "Destination and days are required." });
@@ -103,8 +93,15 @@ app.post("/api/generate-itinerary", async (req, res) => {
       return res.status(400).json({ error: "Days must be a number between 1 and 10." });
     }
 
-    const ai = getAIClient();
-    
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({
+        error: "GEMINI_API_KEY environment variable is missing on Vercel. Please add GEMINI_API_KEY in Vercel Project Settings -> Environment Variables and redeploy.",
+      });
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+
     const promptText = `
       You are an expert travel planner. Create a highly detailed and customized day-by-day travel itinerary for the following request:
       - Destination: ${destination}
@@ -163,78 +160,9 @@ app.post("/api/generate-itinerary", async (req, res) => {
     }
 
     const parsedData = parseGeminiJsonResponse(responseText);
-    res.json(parsedData);
+    return res.status(200).json(parsedData);
   } catch (error: any) {
     console.error("Error generating itinerary:", error);
-    res.status(500).json({ error: error.message || "Failed to generate itinerary. Please try again." });
+    return res.status(500).json({ error: error.message || "Failed to generate itinerary. Please try again." });
   }
-});
-
-// Endpoint for the contextual travel companion chatbot
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { messages, activeItinerary } = req.body;
-
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: "Messages array is required." });
-    }
-
-    const ai = getAIClient();
-
-    // Map frontend messages to Gemini API content format
-    const contents = messages.map((msg: any) => ({
-      role: msg.role === "assistant" ? "model" : "user",
-      parts: [{ text: msg.content || "" }]
-    }));
-
-    // Generate contextual system instruction using the active itinerary if available
-    let systemInstruction = "You are WanderAI's expert travel companion and assistant. Help the user plan, customize, explore, and answer any travel-related questions warmly, clearly, and concisely.";
-    if (activeItinerary) {
-      systemInstruction += `\n\nThe user is currently viewing/planning a trip to: ${activeItinerary.destination}.
-Here are some details about their active itinerary:
-- Duration: ${activeItinerary.days ? activeItinerary.days.length : 0} days
-- Summary: ${activeItinerary.summary || ""}
-Feel free to reference their activities, local tips, and destination in your replies. Keep your advice highly relevant to their trip, suggesting packing advice, cultural norms, dining options, or modifications to this itinerary if asked.`;
-    }
-
-    const response = await generateWithFallback(ai, {
-      contents: contents,
-      config: {
-        systemInstruction: systemInstruction,
-      },
-    });
-
-    const responseText = response.text;
-    if (!responseText) {
-      throw new Error("No response received from Gemini.");
-    }
-
-    res.json({ content: responseText });
-  } catch (error: any) {
-    console.error("Error in chat endpoint:", error);
-    res.status(500).json({ error: error.message || "Failed to process chat. Please try again." });
-  }
-});
-
-// Setup Vite Dev Server / Static files middleware
-async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-  });
 }
-
-startServer();

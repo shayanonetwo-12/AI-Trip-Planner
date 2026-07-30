@@ -47,6 +47,7 @@ import {
   continueAsGuest,
   logoutUser
 } from "./firebase";
+import { generateItineraryApi } from "./lib/geminiClient";
 import TripMap from "./components/TripMap";
 import ChatBot from "./components/ChatBot";
 import BudgetTracker from "./components/BudgetTracker";
@@ -335,25 +336,8 @@ export default function App() {
         .filter(Boolean)
         .join(", ");
 
-      const response = await fetch("/api/generate-itinerary", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          destination,
-          days,
-          interests: interestsQuery,
-        }),
-      });
+      const data = await generateItineraryApi(destination, parseInt(days, 10) || 3, interestsQuery);
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Failed to generate itinerary.");
-      }
-
-      const data = await response.json();
-      
       const budgetInfo = getBudgetForDestination(data.destination, data.days.length);
 
       // Clean structure
@@ -466,21 +450,12 @@ export default function App() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch("/api/generate-itinerary", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            destination: itinerary.destination,
-            days: String(itinerary.duration || 3),
-            interests: ""
-          })
-        });
+        const data = await generateItineraryApi(
+          itinerary.destination,
+          parseInt(String(itinerary.duration || 3), 10) || 3,
+          ""
+        );
 
-        if (!response.ok) {
-          throw new Error("Failed to generate plan from saved destination.");
-        }
-
-        const data = await response.json();
         const budgetInfo = getBudgetForDestination(data.destination, data.days.length);
 
         const loadedItinerary: SavedItinerary = {
@@ -1477,9 +1452,9 @@ export default function App() {
                     <p className="text-xs">Your generated trips will show up here after saving them to your profile.</p>
                   </div>
                 ) : (
-                  savedTrips.map((trip) => (
+                  savedTrips.map((trip, idx) => (
                     <div
-                      key={trip.id}
+                      key={trip.id || `trip-${idx}`}
                       onClick={() => handleLoadSavedTrip(trip)}
                       className="group relative bg-white hover:bg-[#F9F8F6] border border-[#DCD7CC] hover:border-[#5A5A40]/40 hover:shadow-md p-4 rounded-2xl cursor-pointer transition-all duration-200"
                     >
