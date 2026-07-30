@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile document",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The unique ID of the user"
+        },
+        "email": {
+          "type": "string",
+          "description": "The user's registered email address"
+        }
+      },
+      "required": ["userId"]
+    },
+    "Itinerary": {
+      "title": "Itinerary",
+      "description": "Travel itinerary summary containing destination city, duration in days, and currency",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user who owns this itinerary"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp when this itinerary was created"
+        },
+        "destination": {
+          "type": "string",
+          "description": "The destination city or country"
+        },
+        "duration": {
+          "type": "number",
+          "description": "The duration of the trip in days"
+        },
+        "currency": {
+          "type": "string",
+          "description": "The currency code selected for the trip (e.g., USD, EUR, PKR)"
+        }
+      },
+      "required": ["userId", "createdAt", "destination", "duration", "currency"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile metadata"
+    },
+    "/users/{userId}/itineraries/{itineraryId}": {
+      "schema": "Itinerary",
+      "description": "User saved itineraries collection nested under the specific user document"
+    }
+  }
+}

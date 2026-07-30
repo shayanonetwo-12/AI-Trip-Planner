@@ -1,0 +1,6 @@
+{
+  "name": "AI Trip Planner",
+  "description": "An intelligent AI-powered trip planner that generates custom day-by-day itineraries based on user interests, persistent profiles, and interactive map visualizations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
