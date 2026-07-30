@@ -256,48 +256,6 @@ VITE_FIREBASE_APP_ID=
 
 ---
 
-# 📸 Screenshots
-
-## 🏠 Landing Page
-
-```
-Add Screenshot Here
-```
-
----
-
-## ✈️ Trip Planner
-
-```
-Add Screenshot Here
-```
-
----
-
-## 🏨 Hotel Suggestions
-
-```
-Add Screenshot Here
-```
-
----
-
-## 📍 Places to Visit
-
-```
-Add Screenshot Here
-```
-
----
-
-## 📅 Daily Itinerary
-
-```
-Add Screenshot Here
-```
-
----
-
 # 🎯 Future Improvements
 
 - 🌎 Interactive Maps
