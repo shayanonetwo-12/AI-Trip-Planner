@@ -85,7 +85,73 @@ export const SAMPLE_ITINERARIES: SavedItinerary[] = [
           longitude: 139.7764
         }
       }
-    ]
+    ],
+    hotelPreference: "Mid-Range & Comfort",
+    transportPreference: "Cabs & Rideshares (Uber / Taxis)",
+    hotels: [
+      {
+        name: "Shinjuku Granbell Hotel",
+        category: "Modern Boutique",
+        estimatedPricePerNight: 160,
+        currencySymbol: "$",
+        locationArea: "Shinjuku, steps from Higashi-Shinjuku Station",
+        highlights: "Rooftop terrace bar with panoramic city lights, stylish contemporary rooms.",
+        bookingTip: "Ask for an upper-floor room facing east for stunning Tokyo skyline views at sunrise."
+      },
+      {
+        name: "Hotel Gracery Shinjuku",
+        category: "Iconic Landmark Stay",
+        estimatedPricePerNight: 180,
+        currencySymbol: "$",
+        locationArea: "Kabukicho, Shinjuku",
+        highlights: "Home of the giant Godzilla head, spacious modern rooms, surrounded by nightlife.",
+        bookingTip: "Book the Godzilla View Room early for an unforgettable photo op right outside your window."
+      },
+      {
+        name: "The Knot Tokyo Shinjuku",
+        category: "Trendy Lifestyle Hotel",
+        estimatedPricePerNight: 140,
+        currencySymbol: "$",
+        locationArea: "Shinjuku Central Park",
+        highlights: "In-house artisanal bakery, craft cocktail lounge, park view rooms.",
+        bookingTip: "Complimentary bicycle rentals available for exploring Yoyogi Park."
+      }
+    ],
+    weatherForecast: {
+      temperatureRange: "16°C - 23°C (60°F - 73°F)",
+      condition: "Mild, comfortable spring weather with gentle breezes",
+      rainChance: "15% chance of light passing rain",
+      bestTimeToVisit: "March to May (Cherry Blossom) & October to November (Autumn Foliage)",
+      packingTips: [
+        "Comfortable slip-on walking shoes (easy for shoe removal at temples & izakayas)",
+        "Light windbreaker jacket for crisp evenings",
+        "Pocket Wi-Fi unit or eSIM for instant navigation",
+        "Compact umbrella"
+      ]
+    },
+    transportation: {
+      preferredMode: "Cabs & Rideshares + Suica Metro",
+      estimatedDailyCabCost: 35,
+      popularApps: ["Uber Japan", "GO Taxi App", "DiDi Tokyo", "Local Metered Taxis"],
+      cabFareTips: "Taxis in Tokyo feature automatic rear doors. Base fare starts at ~¥500. Rideshare apps like Uber and GO work smoothly.",
+      avgTravelTimePerSpot: "12 - 20 minutes"
+    },
+    budgetBreakdown: {
+      currencyCode: "USD",
+      currencySymbol: "$",
+      estimatedFlightCost: 850,
+      hotelCostPerNight: 160,
+      hotelCostTotal: 480,
+      foodAndDiningPerDay: 60,
+      foodAndDiningTotal: 180,
+      cabAndTransitPerDay: 35,
+      cabAndTransitTotal: 105,
+      attractionsAndActivitiesTotal: 95,
+      miscellaneousTotal: 60,
+      grandTotalEstimated: 1770,
+      budgetLevel: "Realistic Mid-Range Estimate",
+      moneySavingTip: "Purchase a 72-hour Tokyo Subway Ticket for unlimited metro rides, and enjoy high-quality Bento sets from 7-Eleven or Lawson."
+    }
   },
   {
     id: "sample-rome",

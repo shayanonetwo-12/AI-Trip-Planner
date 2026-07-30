@@ -29,7 +29,14 @@ function parseGeminiJsonResponse(text: string): any {
   }
 }
 
-export async function generateItineraryApi(destination: string, days: number, interests: string) {
+export async function generateItineraryApi(
+  destination: string,
+  days: number,
+  interests: string,
+  hotelPreference?: string,
+  transportPreference?: string,
+  currency?: string
+) {
   let lastApiError: string | null = null;
 
   // 1. Try server endpoint first (/api/generate-itinerary)
@@ -37,7 +44,7 @@ export async function generateItineraryApi(destination: string, days: number, in
     const res = await fetch("/api/generate-itinerary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ destination, days, interests }),
+      body: JSON.stringify({ destination, days, interests, hotelPreference, transportPreference, currency }),
     });
 
     const text = await res.text();
@@ -72,7 +79,15 @@ export async function generateItineraryApi(destination: string, days: number, in
   const clientKey = getClientApiKey();
   if (clientKey) {
     try {
-      return await generateItineraryClientSide(destination, days, interests, clientKey);
+      return await generateItineraryClientSide(
+        destination,
+        days,
+        interests,
+        clientKey,
+        hotelPreference,
+        transportPreference,
+        currency
+      );
     } catch (clientErr: any) {
       throw clientErr;
     }
@@ -198,21 +213,77 @@ async function generateItineraryClientSide(
   destination: string,
   days: number,
   interests: string,
-  apiKey: string
+  apiKey: string,
+  hotelPreference?: string,
+  transportPreference?: string,
+  currency?: string
 ) {
+  const hotelTierLabel = hotelPreference || "Mid-Range & Comfort";
+  const transportModeLabel = transportPreference || "Cabs & Rideshares (Uber / Local Taxis)";
+  const userCurrency = currency || "USD";
+
   const ai = new GoogleGenAI({ apiKey });
   const promptText = `
-    You are an expert travel planner. Create a highly detailed and customized day-by-day travel itinerary for the following request:
+    You are an expert travel planner and local guide. Create a comprehensive, realistic day-by-day travel itinerary with hotels, weather forecast, cab/transport options, and an ultra-realistic destination-specific budget estimate for:
     - Destination: ${destination}
     - Duration: ${days} days
-    - Interests: ${interests || "General sightseeing, local food, culture, highlights"}
+    - Selected Interests: ${interests || "General sightseeing, local food, culture, highlights"}
+    - Requested Hotel Level: ${hotelTierLabel}
+    - Requested Transport Mode: ${transportModeLabel}
+    - Preferred Currency: ${userCurrency}
 
-    You MUST respond with a JSON object that matches this TypeScript schema exactly:
+    CRITICAL CURRENCY & BUDGET INSTRUCTIONS:
+    1. All prices (hotel cost per night, flight cost, daily food budget, daily cab/transit cost, attractions total, and grand total) MUST be calculated and reported in ${userCurrency}.
+    2. Set "currencyCode": "${userCurrency}" and set "currencySymbol" appropriately (e.g. "$" for USD, "€" for EUR, "£" for GBP, "₹" for INR, "¥" for JPY, "C$" for CAD, "A$" for AUD, "AED" for AED).
+    3. Tailor all prices specifically to realistic cost standards for ${destination} converted into ${userCurrency}.
+
+    You MUST respond with a JSON object matching this exact schema:
     {
-      "destination": string, // Normalized destination name (e.g. "Paris, France")
-      "lat": number, // Latitude of the destination city (e.g. 48.8566)
-      "lng": number, // Longitude of the destination city (e.g. 2.3522)
-      "summary": string, // A short, welcoming description or intro for the trip
+      "destination": string,
+      "lat": number,
+      "lng": number,
+      "summary": string,
+      "hotels": [
+        {
+          "name": string,
+          "category": string,
+          "estimatedPricePerNight": number,
+          "currencySymbol": string,
+          "locationArea": string,
+          "highlights": string,
+          "bookingTip": string
+        }
+      ],
+      "weatherForecast": {
+        "temperatureRange": string,
+        "condition": string,
+        "rainChance": string,
+        "bestTimeToVisit": string,
+        "packingTips": string[]
+      },
+      "transportation": {
+        "preferredMode": string,
+        "estimatedDailyCabCost": number,
+        "popularApps": string[],
+        "cabFareTips": string,
+        "avgTravelTimePerSpot": string
+      },
+      "budgetBreakdown": {
+        "currencyCode": string,
+        "currencySymbol": string,
+        "estimatedFlightCost": number,
+        "hotelCostPerNight": number,
+        "hotelCostTotal": number,
+        "foodAndDiningPerDay": number,
+        "foodAndDiningTotal": number,
+        "cabAndTransitPerDay": number,
+        "cabAndTransitTotal": number,
+        "attractionsAndActivitiesTotal": number,
+        "miscellaneousTotal": number,
+        "grandTotalEstimated": number,
+        "budgetLevel": string,
+        "moneySavingTip": string
+      },
       "days": [
         {
           "dayNumber": number,
@@ -268,14 +339,21 @@ async function chatClientSide(messages: any[], activeItinerary: any, apiKey: str
     parts: [{ text: msg.content || "" }],
   }));
 
-  let systemInstruction =
-    "You are WanderAI's expert travel companion and assistant. Help the user plan, customize, explore, and answer any travel-related questions warmly, clearly, and concisely.";
+  let systemInstruction = `You are WanderAI's dedicated travel companion and AI assistant. Your sole purpose and area of expertise is travel, trip planning, itinerary creation, destination guides, hotels, local transportation, travel budgeting, weather & packing, food & culture, and travel advice.
+
+CRITICAL DOMAIN RESTRICTION:
+- You MUST ONLY answer questions related to travel, destinations, itineraries, hotels, flights/transit, packing, travel budgets, local foods, cultural customs, visas, or trip planning in WanderAI.
+- IF A USER ASKS ANYTHING UNRELATED TO TRAVEL (e.g., programming/coding, math, physics, general non-travel trivia, politics, non-travel writing, homework, medical/legal/financial advice, tech support, etc.):
+  YOU MUST POLITELY APOLOGIZE AND DECLINE TO ANSWER.
+  Example response tone: "I'm sorry, but as WanderAI's dedicated travel assistant, I can only answer travel and trip planning questions! 🌍 I'm unable to assist with that topic, but I'd be happy to help you with your next vacation or any travel-related query."
+- Keep all replies warm, polite, clear, and helpful.`;
+
   if (activeItinerary) {
-    systemInstruction += `\n\nThe user is currently viewing/planning a trip to: ${activeItinerary.destination}.
-Here are some details about their active itinerary:
+    systemInstruction += `\n\nCURRENT ACTIVE TRIP CONTEXT:
+The user is currently viewing/planning a trip to: ${activeItinerary.destination}.
 - Duration: ${activeItinerary.days ? activeItinerary.days.length : 0} days
 - Summary: ${activeItinerary.summary || ""}
-Feel free to reference their activities, local tips, and destination in your replies. Keep your advice highly relevant to their trip, suggesting packing advice, cultural norms, dining options, or modifications to this itinerary if asked.`;
+Feel free to reference their activities, local tips, hotels, transport, and destination in your replies. Keep your advice highly relevant to their trip, suggesting packing advice, cultural norms, dining options, or modifications to this itinerary if asked.`;
   }
 
   const response = await generateWithFallback(ai, {

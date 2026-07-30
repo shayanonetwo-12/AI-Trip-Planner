@@ -28,7 +28,10 @@ import {
   Lock,
   LogOut,
   LogIn,
-  User
+  User,
+  Coins,
+  DollarSign,
+  Globe
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { motion, AnimatePresence } from "motion/react";
@@ -40,6 +43,7 @@ import {
   getSavedItineraries, 
   deleteSavedItinerary, 
   SavedItinerary,
+  RealisticBudgetBreakdown,
   auth,
   registerWithEmailPassword,
   loginWithEmailPassword,
@@ -51,7 +55,26 @@ import { generateItineraryApi } from "./lib/geminiClient";
 import TripMap from "./components/TripMap";
 import ChatBot from "./components/ChatBot";
 import BudgetTracker from "./components/BudgetTracker";
+import HotelOptionsCard from "./components/HotelOptionsCard";
+import WeatherGuideCard from "./components/WeatherGuideCard";
+import TransportGuideCard from "./components/TransportGuideCard";
+import RealisticBudgetCard from "./components/RealisticBudgetCard";
+import { Hotel, Car, CloudSun, Wallet } from "lucide-react";
 import { SAMPLE_ITINERARIES } from "./data/samples";
+
+// Supported Currencies List
+const CURRENCY_OPTIONS = [
+  { code: "USD", symbol: "$", label: "USD ($) - US Dollar" },
+  { code: "EUR", symbol: "€", label: "EUR (€) - Euro" },
+  { code: "GBP", symbol: "£", label: "GBP (£) - British Pound" },
+  { code: "INR", symbol: "₹", label: "INR (₹) - Indian Rupee" },
+  { code: "JPY", symbol: "¥", label: "JPY (¥) - Japanese Yen" },
+  { code: "CAD", symbol: "C$", label: "CAD (C$) - Canadian Dollar" },
+  { code: "AUD", symbol: "A$", label: "AUD (A$) - Australian Dollar" },
+  { code: "AED", symbol: "AED", label: "AED - UAE Dirham" },
+  { code: "SGD", symbol: "S$", label: "SGD (S$) - Singapore Dollar" },
+  { code: "CHF", symbol: "CHF", label: "CHF - Swiss Franc" },
+];
 
 // Pre-defined popular interests with icons
 const INTERESTS_PRESETS = [
@@ -84,7 +107,10 @@ export default function App() {
   // Form States
   const [destination, setDestination] = useState("");
   const [days, setDays] = useState("3");
+  const [selectedCurrency, setSelectedCurrency] = useState("USD");
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
+  const [hotelPreference, setHotelPreference] = useState("Mid-Range & Comfort");
+  const [transportPreference, setTransportPreference] = useState("Cabs & Rideshares (Uber / Taxis)");
   
   // Custom suggestion click helper
   const SUGGESTED_DESTINATIONS = [
@@ -336,7 +362,32 @@ export default function App() {
         .filter(Boolean)
         .join(", ");
 
-      const data = await generateItineraryApi(destination, parseInt(days, 10) || 3, interestsQuery);
+      const data = await generateItineraryApi(
+        destination,
+        parseInt(days, 10) || 3,
+        interestsQuery,
+        hotelPreference,
+        transportPreference,
+        selectedCurrency
+      );
+
+      // Seed localStorage with realistic budget breakdown if available
+      if (data.budgetBreakdown) {
+        const key = `wanderai_budget_${data.destination.replace(/[^a-z0-9]/gi, "_").toLowerCase()}`;
+        const totalOther = (data.budgetBreakdown.cabAndTransitTotal || 0) + (data.budgetBreakdown.miscellaneousTotal || 0);
+        localStorage.setItem(
+          key,
+          JSON.stringify({
+            flights: data.budgetBreakdown.estimatedFlightCost || 450,
+            hotelPerNight: data.budgetBreakdown.hotelCostPerNight || 120,
+            foodPerDay: data.budgetBreakdown.foodAndDiningPerDay || 50,
+            activities: data.budgetBreakdown.attractionsAndActivitiesTotal || 150,
+            other: totalOther,
+            budgetLimit: Math.ceil((data.budgetBreakdown.grandTotalEstimated * 1.1) / 50) * 50 || 1500,
+            currency: data.budgetBreakdown.currencyCode || selectedCurrency,
+          })
+        );
+      }
 
       const budgetInfo = getBudgetForDestination(data.destination, data.days.length);
 
@@ -345,10 +396,18 @@ export default function App() {
         userId: userId || "anonymous",
         createdAt: Date.now(),
         destination: data.destination,
+        duration: parseInt(days, 10) || data.days.length,
+        currency: data.budgetBreakdown?.currencyCode || selectedCurrency,
         lat: Number(data.lat) || 48.8566,
         lng: Number(data.lng) || 2.3522,
         summary: data.summary,
         days: data.days,
+        hotelPreference,
+        transportPreference,
+        hotels: data.hotels,
+        weatherForecast: data.weatherForecast,
+        transportation: data.transportation,
+        budgetBreakdown: data.budgetBreakdown,
         ...budgetInfo
       };
 
@@ -1052,24 +1111,137 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Trip Currency Selection */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-[#7D7667] uppercase tracking-wider flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Coins className="w-3.5 h-3.5 text-[#5A5A40]" /> Preferred Trip Currency
+                  </span>
+                  <span className="text-[10px] text-[#5A5A40] font-bold bg-[#E9EDC9] px-2 py-0.5 rounded-md">
+                    Set before planning
+                  </span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={selectedCurrency}
+                    onChange={(e) => setSelectedCurrency(e.target.value)}
+                    className="w-full bg-[#F9F8F6] border border-[#E5E1D8] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#D4A373]/30 focus:border-[#D4A373] text-[#33332D] text-xs font-bold rounded-xl px-3.5 py-2.5 appearance-none cursor-pointer pr-10 transition-all"
+                  >
+                    {CURRENCY_OPTIONS.map((curr) => (
+                      <option key={curr.code} value={curr.code}>
+                        {curr.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#5A5A40] text-xs font-extrabold bg-[#E5E1D8]/60 px-2 py-0.5 rounded-lg">
+                    {CURRENCY_OPTIONS.find((c) => c.code === selectedCurrency)?.symbol || "$"}
+                  </div>
+                </div>
+              </div>
+
               {/* Number of Days Selector */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-[#7D7667] uppercase tracking-wider block">
-                  Duration (Days)
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-bold text-[#7D7667] uppercase tracking-wider flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-[#5A5A40]" /> Duration (Days)
+                  </label>
+                  <span className="text-xs text-[#5A5A40] font-bold">
+                    {days ? `${days} ${parseInt(days, 10) === 1 ? 'day' : 'days'}` : 'Select days'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-5 gap-1 flex-1">
+                    {["1", "3", "7", "14", "30"].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setDays(num)}
+                        className={`py-2 rounded-xl text-xs font-bold border transition-all duration-150 cursor-pointer ${
+                          days === num
+                            ? "bg-[#5A5A40] border-[#5A5A40] text-white shadow-xs"
+                            : "bg-[#F5F2ED] hover:bg-[#E5E1D8] border-[#E5E1D8] text-[#7D7667]"
+                        }`}
+                      >
+                        {num}d
+                      </button>
+                    ))}
+                  </div>
+                  <div className="w-28 shrink-0 relative">
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      value={days}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "" || (parseInt(val, 10) >= 1 && parseInt(val, 10) <= 31)) {
+                          setDays(val);
+                        }
+                      }}
+                      placeholder="Custom"
+                      className="w-full bg-[#F9F8F6] border border-[#E5E1D8] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#D4A373]/30 focus:border-[#D4A373] text-[#33332D] text-xs font-bold rounded-xl px-2.5 py-2 text-center transition-all"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#7D7667] font-semibold pointer-events-none">
+                      days
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[10px] text-[#7D7667]">
+                  Select a preset or enter any custom duration (1 to 31 days).
+                </p>
+              </div>
+
+              {/* Hotel Accommodation Selector */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-[#7D7667] uppercase tracking-wider flex items-center gap-1">
+                  <Hotel className="w-3.5 h-3.5 text-[#5A5A40]" /> Hotel Accommodation Tier
                 </label>
-                <div className="grid grid-cols-5 gap-2">
-                  {["1", "2", "3", "5", "7"].map((num) => (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { label: "Budget & Hostels ($)", value: "Budget & Hostels" },
+                    { label: "Mid-Range & Comfort ($$)", value: "Mid-Range & Comfort" },
+                    { label: "Boutique Stays ($$$)", value: "Boutique Stays" },
+                    { label: "Luxury 5-Star ($$$$)", value: "Luxury 5-Star" },
+                  ].map((opt) => (
                     <button
-                      key={num}
+                      key={opt.value}
                       type="button"
-                      onClick={() => setDays(num)}
-                      className={`py-2 rounded-xl text-sm font-bold border transition-all duration-150 cursor-pointer ${
-                        days === num
-                          ? "bg-[#5A5A40] border-[#5A5A40] text-white shadow-sm"
+                      onClick={() => setHotelPreference(opt.value)}
+                      className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
+                        hotelPreference === opt.value
+                          ? "bg-[#5A5A40] border-[#5A5A40] text-white shadow-xs"
                           : "bg-[#F5F2ED] hover:bg-[#E5E1D8] border-[#E5E1D8] text-[#7D7667]"
                       }`}
                     >
-                      {num}
+                      <span className="truncate">{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cab & Transport Mode Selector */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-[#7D7667] uppercase tracking-wider flex items-center gap-1">
+                  <Car className="w-3.5 h-3.5 text-[#5A5A40]" /> Preferred Local Transport
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { label: "Cabs & Rideshares 🚕", value: "Cabs & Rideshares (Uber / Taxis)" },
+                    { label: "Public Transit 🚆", value: "Public Metro & Transit" },
+                    { label: "Self-Drive Rental 🚗", value: "Self-Drive Rental Car" },
+                    { label: "Private Driver 🚘", value: "Private Driver / Chauffeur" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setTransportPreference(opt.value)}
+                      className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition-all text-left flex items-center justify-between cursor-pointer ${
+                        transportPreference === opt.value
+                          ? "bg-[#5A5A40] border-[#5A5A40] text-white shadow-xs"
+                          : "bg-[#F5F2ED] hover:bg-[#E5E1D8] border-[#E5E1D8] text-[#7D7667]"
+                      }`}
+                    >
+                      <span className="truncate">{opt.label}</span>
                     </button>
                   ))}
                 </div>
@@ -1241,13 +1413,17 @@ export default function App() {
                 <div className="bg-white rounded-3xl border border-[#DCD7CC] shadow-sm p-6 sm:p-8">
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[10px] font-bold text-[#5A5A40] bg-[#E9EDC9] px-2.5 py-1 rounded-full uppercase tracking-wider">
                           Ready Itinerary
                         </span>
                         <span className="text-xs text-[#7D7667] font-semibold flex items-center gap-1">
                           <Calendar className="w-3.5 h-3.5" />
                           {activeItinerary.days.length} Days Plan
+                        </span>
+                        <span className="text-xs text-[#5A5A40] bg-[#E9EDC9] px-2 py-0.5 rounded-md font-bold flex items-center gap-1 border border-[#CCD5AE]">
+                          <Coins className="w-3 h-3 text-[#5A5A40]" />
+                          Currency: {activeItinerary.budgetBreakdown?.currencyCode || activeItinerary.currency || selectedCurrency} ({activeItinerary.budgetBreakdown?.currencySymbol || CURRENCY_OPTIONS.find(c => c.code === selectedCurrency)?.symbol || "$"})
                         </span>
                       </div>
                       <h2 className="font-serif font-bold text-2xl sm:text-3xl text-[#33332D]">
@@ -1297,6 +1473,49 @@ export default function App() {
                     </div>
                   )}
                 </div>
+
+                {/* Ultra-Realistic Trip Budget Breakdown */}
+                <RealisticBudgetCard
+                  budget={activeItinerary.budgetBreakdown}
+                  destination={activeItinerary.destination}
+                  durationDays={activeItinerary.days.length}
+                  onApplyToTracker={(b: RealisticBudgetBreakdown) => {
+                    const key = `wanderai_budget_${activeItinerary.destination.replace(/[^a-z0-9]/gi, "_").toLowerCase()}`;
+                    const totalOther = (b.cabAndTransitTotal || 0) + (b.miscellaneousTotal || 0);
+                    localStorage.setItem(
+                      key,
+                      JSON.stringify({
+                        flights: b.estimatedFlightCost || 450,
+                        hotelPerNight: b.hotelCostPerNight || 120,
+                        foodPerDay: b.foodAndDiningPerDay || 50,
+                        activities: b.attractionsAndActivitiesTotal || 150,
+                        other: totalOther,
+                        budgetLimit: Math.ceil((b.grandTotalEstimated * 1.1) / 50) * 50 || 1500,
+                        currency: b.currencyCode || "USD",
+                      })
+                    );
+                    window.dispatchEvent(new Event("storage"));
+                  }}
+                />
+
+                {/* Hotel Recommendations */}
+                <HotelOptionsCard
+                  hotels={activeItinerary.hotels}
+                  hotelPreference={activeItinerary.hotelPreference || hotelPreference}
+                  destination={activeItinerary.destination}
+                />
+
+                {/* Weather Forecast & Packing Guide */}
+                <WeatherGuideCard
+                  weather={activeItinerary.weatherForecast}
+                  destination={activeItinerary.destination}
+                />
+
+                {/* Cab, Taxi & Transport Guide */}
+                <TransportGuideCard
+                  transport={activeItinerary.transportation}
+                  destination={activeItinerary.destination}
+                />
 
                 {/* Day Tabs Selection */}
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1">

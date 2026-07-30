@@ -92,6 +92,49 @@ export async function logoutUser(): Promise<void> {
   await signOut(auth);
 }
 
+export interface HotelOption {
+  name: string;
+  category: string;
+  estimatedPricePerNight: number;
+  currencySymbol: string;
+  locationArea: string;
+  highlights: string;
+  bookingTip: string;
+}
+
+export interface WeatherForecast {
+  temperatureRange: string;
+  condition: string;
+  rainChance: string;
+  bestTimeToVisit: string;
+  packingTips: string[];
+}
+
+export interface TransportationGuide {
+  preferredMode: string;
+  estimatedDailyCabCost: number;
+  popularApps: string[];
+  cabFareTips: string;
+  avgTravelTimePerSpot: string;
+}
+
+export interface RealisticBudgetBreakdown {
+  currencyCode: string;
+  currencySymbol: string;
+  estimatedFlightCost: number;
+  hotelCostPerNight: number;
+  hotelCostTotal: number;
+  foodAndDiningPerDay: number;
+  foodAndDiningTotal: number;
+  cabAndTransitPerDay: number;
+  cabAndTransitTotal: number;
+  attractionsAndActivitiesTotal: number;
+  miscellaneousTotal: number;
+  grandTotalEstimated: number;
+  budgetLevel: string;
+  moneySavingTip: string;
+}
+
 export interface SavedItinerary {
   id?: string;
   userId: string;
@@ -102,6 +145,12 @@ export interface SavedItinerary {
   lat?: number;
   lng?: number;
   summary?: string;
+  hotelPreference?: string;
+  transportPreference?: string;
+  hotels?: HotelOption[];
+  weatherForecast?: WeatherForecast;
+  transportation?: TransportationGuide;
+  budgetBreakdown?: RealisticBudgetBreakdown;
   days?: Array<{
     dayNumber: number;
     foodTip: string;
