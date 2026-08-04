@@ -8,7 +8,8 @@ import {
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
   signInWithPopup,
-  signOut
+  signOut,
+  sendPasswordResetEmail
 } from "firebase/auth";
 import { 
   getFirestore, 
@@ -90,6 +91,11 @@ export async function loginWithEmailPassword(email: string, password: string): P
 // Sign out user
 export async function logoutUser(): Promise<void> {
   await signOut(auth);
+}
+
+// Send Password Reset Email
+export async function resetPasswordEmail(email: string): Promise<void> {
+  await sendPasswordResetEmail(auth, email);
 }
 
 export interface HotelOption {
@@ -180,6 +186,7 @@ export interface SavedItinerary {
   budgetLimit?: number;
   currencyCode?: string;
   currencySymbol?: string;
+  packingChecklist?: any[];
 }
 
 export enum OperationType {
@@ -408,7 +415,14 @@ export async function getSavedItineraries(userId: string): Promise<SavedItinerar
         totalBudget: data.totalBudget,
         budgetLimit: data.budgetLimit,
         currencyCode: data.currencyCode,
-        currencySymbol: data.currencySymbol
+        currencySymbol: data.currencySymbol,
+        hotels: data.hotels,
+        weatherForecast: data.weatherForecast,
+        transportation: data.transportation,
+        budgetBreakdown: data.budgetBreakdown,
+        packingChecklist: data.packingChecklist,
+        hotelPreference: data.hotelPreference,
+        transportPreference: data.transportPreference
       } as SavedItinerary);
     });
     return results.sort((a, b) => b.createdAt - a.createdAt);

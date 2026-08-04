@@ -32,7 +32,13 @@ import {
   Coins,
   DollarSign,
   Globe,
-  ChevronDown
+  ChevronDown,
+  Eye,
+  EyeOff,
+  KeyRound,
+  ShieldCheck,
+  CheckCircle2,
+  RotateCcw
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { motion, AnimatePresence } from "motion/react";
@@ -50,7 +56,8 @@ import {
   loginWithEmailPassword,
   loginWithGoogle,
   continueAsGuest,
-  logoutUser
+  logoutUser,
+  resetPasswordEmail
 } from "./firebase";
 import { generateItineraryApi } from "./lib/geminiClient";
 import TripMap from "./components/TripMap";
@@ -60,6 +67,7 @@ import HotelOptionsCard from "./components/HotelOptionsCard";
 import WeatherGuideCard from "./components/WeatherGuideCard";
 import TransportGuideCard from "./components/TransportGuideCard";
 import RealisticBudgetCard from "./components/RealisticBudgetCard";
+import PackingChecklistCard, { PackingItem } from "./components/PackingChecklistCard";
 import { Hotel, Car, CloudSun, Wallet } from "lucide-react";
 import { SAMPLE_ITINERARIES } from "./data/samples";
 
@@ -104,6 +112,9 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [isPasswordResetMode, setIsPasswordResetMode] = useState(false);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
 
   // Form States
@@ -131,6 +142,7 @@ export default function App() {
   const [activeDay, setActiveDay] = useState(1);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [pendingSaveTrip, setPendingSaveTrip] = useState(false);
 
   // Profile / Saved Trips list States
   const [savedTrips, setSavedTrips] = useState<SavedItinerary[]>([]);
@@ -266,6 +278,33 @@ export default function App() {
         message = "Invalid email or password.";
       } else if (err.code === "auth/weak-password" || (err.message && err.message.includes("weak-password"))) {
         message = "Password should be at least 6 characters.";
+      } else if (err.code === "auth/invalid-email" || (err.message && err.message.includes("invalid-email"))) {
+        message = "Invalid email address format.";
+      }
+      setAuthError(message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // Handle Password Reset Request
+  const handlePasswordResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail) {
+      setAuthError("Please enter your email address to receive a password reset link.");
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    setResetSuccessMessage(null);
+    try {
+      await resetPasswordEmail(authEmail);
+      setResetSuccessMessage(`A password reset link has been sent to ${authEmail}. Please check your inbox and spam folder.`);
+    } catch (err: any) {
+      console.error("Password reset action failed:", err);
+      let message = err.message || "Failed to send password reset email.";
+      if (err.code === "auth/user-not-found" || (err.message && err.message.includes("user-not-found"))) {
+        message = "No account registered with this email address.";
       } else if (err.code === "auth/invalid-email" || (err.message && err.message.includes("invalid-email"))) {
         message = "Invalid email address format.";
       }
@@ -430,21 +469,32 @@ export default function App() {
 
   // Save trip to user profile in Firestore
   const handleSaveTrip = async () => {
-    if (!userId || !activeItinerary) return;
+    if (!activeItinerary) return;
+
+    // Mandatory Login / Signup check if user is guest or not logged in
+    if (!userId || isAnonymous) {
+      setAuthError("Please sign in or create an account to save your trip to your profile.");
+      setIsRegisterMode(false);
+      setPendingSaveTrip(true);
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     setSaving(true);
     try {
       const { id, ...itineraryData } = activeItinerary;
       const budgetInfo = getBudgetForDestination(activeItinerary.destination, activeItinerary.days.length);
       const mergedItineraryData = {
         ...itineraryData,
-        ...budgetInfo
+        ...budgetInfo,
+        packingChecklist: activeItinerary.packingChecklist || []
       };
       
       const docId = await saveItinerary(userId, mergedItineraryData);
       setSaveSuccess(true);
       
       // Add id to active and refresh list
-      setActiveItinerary({ ...activeItinerary, id: docId, ...budgetInfo });
+      setActiveItinerary({ ...activeItinerary, id: docId, ...budgetInfo, packingChecklist: mergedItineraryData.packingChecklist });
       await refreshSavedTrips(userId);
 
       // Auto clear alert banner after 4 seconds
@@ -456,6 +506,14 @@ export default function App() {
       setSaving(false);
     }
   };
+
+  // Auto save trip after successful login/signup if save was pending
+  useEffect(() => {
+    if (pendingSaveTrip && userId && !isAnonymous && activeItinerary) {
+      setPendingSaveTrip(false);
+      handleSaveTrip();
+    }
+  }, [userId, isAnonymous, pendingSaveTrip, activeItinerary]);
 
   // Delete saved trip
   const handleDeleteTrip = async (itineraryId: string, e: React.MouseEvent) => {
@@ -1610,6 +1668,18 @@ export default function App() {
                   selectedCurrency={selectedCurrency}
                 />
 
+                {/* Packing Checklist */}
+                <PackingChecklistCard
+                  key={activeItinerary.id || activeItinerary.destination}
+                  destination={activeItinerary.destination}
+                  weatherForecast={activeItinerary.weatherForecast}
+                  durationDays={activeItinerary.days.length}
+                  savedChecklist={activeItinerary.packingChecklist}
+                  onChecklistChange={(updatedItems: PackingItem[]) => {
+                    setActiveItinerary((prev) => (prev ? { ...prev, packingChecklist: updatedItems } : null));
+                  }}
+                />
+
                 {/* Day Tabs Selection */}
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
                   {activeItinerary.days.map((dayPlan) => (
@@ -1831,139 +1901,315 @@ export default function App() {
           <div className="fixed inset-0 z-[2050] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
+              animate={{ opacity: 0.6 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsAuthModalOpen(false)}
-              className="absolute inset-0 bg-black"
+              onClick={() => {
+                setIsAuthModalOpen(false);
+                setIsPasswordResetMode(false);
+                setResetSuccessMessage(null);
+                setAuthError(null);
+              }}
+              className="absolute inset-0 bg-[#33332D]"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="relative w-full max-w-md bg-white rounded-3xl border border-[#DCD7CC] shadow-2xl overflow-hidden z-10 flex flex-col"
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="relative w-full max-w-lg bg-white rounded-3xl border border-[#DCD7CC] shadow-2xl overflow-hidden z-10 flex flex-col my-auto max-h-[92vh] overflow-y-auto"
             >
+              {/* Close Button */}
               <button
-                onClick={() => setIsAuthModalOpen(false)}
-                className="absolute top-4 right-4 p-2 rounded-full hover:bg-black/5 text-[#7D7667] hover:text-[#33332D] transition-all cursor-pointer z-20"
+                onClick={() => {
+                  setIsAuthModalOpen(false);
+                  setIsPasswordResetMode(false);
+                  setResetSuccessMessage(null);
+                  setAuthError(null);
+                }}
+                className="absolute top-4 right-4 p-2 rounded-full bg-white/80 hover:bg-[#F5F2ED] text-[#7D7667] hover:text-[#33332D] border border-[#E5E1D8] transition-all cursor-pointer z-20 shadow-2xs"
                 title="Close"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
 
-              <div className="p-6 sm:p-8 border-b border-[#DCD7CC]/60 bg-[#FAEED1]/25 text-center flex flex-col items-center gap-3">
-                <div className="w-12 h-12 bg-[#5A5A40] rounded-2xl flex items-center justify-center text-white shadow-sm">
-                  <Compass className="w-6 h-6" />
+              {/* Modal Brand Header */}
+              <div className="p-6 sm:p-7 border-b border-[#DCD7CC]/60 bg-gradient-to-b from-[#FAEED1]/40 to-[#F5F2ED]/60 text-center flex flex-col items-center gap-3">
+                <div className="w-12 h-12 bg-[#5A5A40] rounded-2xl flex items-center justify-center text-white shadow-md relative">
+                  <Compass className="w-6 h-6 animate-spin-slow" />
+                  <Sparkles className="w-3.5 h-3.5 text-[#D4A373] absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-2xs" />
                 </div>
                 <div>
                   <h2 className="font-serif font-bold text-2xl text-[#33332D]">
-                    {isRegisterMode ? "Create Your Account" : "Sign In to WanderAI"}
+                    {isPasswordResetMode
+                      ? "Reset Password"
+                      : isRegisterMode
+                      ? "Create Your WanderAI Account"
+                      : "Welcome Back to WanderAI"}
                   </h2>
                   <p className="text-xs text-[#7D7667] mt-1 max-w-xs mx-auto font-medium leading-relaxed">
-                    {isRegisterMode 
-                      ? "Join WanderAI to save trips, track budgets across devices, and sync itineraries."
-                      : "Sign in to access your saved trips and synchronized travel itineraries."}
+                    {isPasswordResetMode
+                      ? "Enter your email address and we'll send you a secure link to reset your password."
+                      : isRegisterMode
+                      ? "Unlock cloud sync, multi-currency budget tracking, and saved trips."
+                      : "Sign in to access your saved travel itineraries and custom trip budgets."}
                   </p>
                 </div>
+
+                {/* Mode Selector Tabs (Sign In vs Register) */}
+                {!isPasswordResetMode && (
+                  <div className="mt-2 bg-[#EAE7E0]/80 p-1 rounded-2xl flex items-center gap-1 border border-[#DCD7CC]/70 w-full max-w-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRegisterMode(false);
+                        setAuthError(null);
+                        setResetSuccessMessage(null);
+                      }}
+                      className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                        !isRegisterMode
+                          ? "bg-white text-[#5A5A40] shadow-sm border border-[#DCD7CC]/40"
+                          : "text-[#7D7667] hover:text-[#33332D]"
+                      }`}
+                    >
+                      Sign In
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRegisterMode(true);
+                        setAuthError(null);
+                        setResetSuccessMessage(null);
+                      }}
+                      className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                        isRegisterMode
+                          ? "bg-white text-[#5A5A40] shadow-sm border border-[#DCD7CC]/40"
+                          : "text-[#7D7667] hover:text-[#33332D]"
+                      }`}
+                    >
+                      New Account
+                    </button>
+                  </div>
+                )}
               </div>
 
+              {/* Main Body Content */}
               <div className="p-6 sm:p-8 space-y-5">
+                {/* Error Banner */}
                 {authError && (
-                  <div className="bg-red-50 border border-red-200 text-red-800 p-3.5 rounded-xl text-xs font-semibold leading-relaxed flex items-start gap-2">
-                    <span className="text-sm">⚠️</span>
-                    <div>{authError}</div>
+                  <div className="bg-red-50 border border-red-200 text-red-800 p-3.5 rounded-2xl text-xs font-semibold leading-relaxed flex items-start gap-2.5 animate-in fade-in duration-200">
+                    <span className="text-base shrink-0">⚠️</span>
+                    <div className="flex-1">{authError}</div>
                   </div>
                 )}
 
-                <form onSubmit={handleAuthSubmit} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-[#7D7667] uppercase tracking-wider block">
-                      Email Address
-                    </label>
-                    <div className="relative">
-                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7D7667] w-4 h-4" />
-                      <input
-                        type="email"
-                        required
-                        value={authEmail}
-                        onChange={(e) => setAuthEmail(e.target.value)}
-                        placeholder="traveler@wanderai.com"
-                        className="w-full pl-11 pr-4 py-3 bg-[#F9F8F6] border border-[#E5E1D8] rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#D4A373]/30 focus:border-[#D4A373] text-sm placeholder-[#7D7667]/50 transition-all font-medium text-[#33332D]"
-                      />
-                    </div>
+                {/* Success Banner */}
+                {resetSuccessMessage && (
+                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 p-3.5 rounded-2xl text-xs font-semibold leading-relaxed flex items-start gap-2.5 animate-in fade-in duration-200">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">{resetSuccessMessage}</div>
                   </div>
+                )}
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-[#7D7667] uppercase tracking-wider block">
-                      Password
-                    </label>
-                    <div className="relative">
-                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7D7667] w-4 h-4" />
-                      <input
-                        type="password"
-                        required
-                        minLength={6}
-                        value={authPassword}
-                        onChange={(e) => setAuthPassword(e.target.value)}
-                        placeholder="••••••••"
-                        className="w-full pl-11 pr-4 py-3 bg-[#F9F8F6] border border-[#E5E1D8] rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#D4A373]/30 focus:border-[#D4A373] text-sm placeholder-[#7D7667]/50 transition-all font-medium text-[#33332D]"
-                      />
+                {/* Perks Banner for Registration */}
+                {isRegisterMode && !isPasswordResetMode && (
+                  <div className="bg-[#FAEED1]/40 border border-[#CCD5AE]/60 p-3.5 rounded-2xl space-y-1.5 text-xs">
+                    <div className="font-extrabold text-[#5A5A40] uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-[#D4A373]" />
+                      Free Account Benefits
                     </div>
+                    <ul className="space-y-1 text-[#5A5A40] font-medium text-[11px] list-disc list-inside">
+                      <li>Cloud sync trips across mobile & desktop</li>
+                      <li>Budget tracking in 11 global currencies</li>
+                      <li>Export custom trip itineraries to PDF</li>
+                    </ul>
                   </div>
+                )}
 
-                  <button
-                    type="submit"
-                    disabled={authLoading}
-                    className="w-full bg-[#5A5A40] hover:bg-[#4A4A33] text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all duration-150 disabled:opacity-75 cursor-pointer text-sm tracking-wide"
-                  >
-                    {authLoading ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : isRegisterMode ? (
-                      "Create Free Account"
-                    ) : (
-                      "Sign In to WanderAI"
-                    )}
-                  </button>
-                </form>
+                {/* Password Reset Form Flow */}
+                {isPasswordResetMode ? (
+                  <form onSubmit={handlePasswordResetSubmit} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-[#7D7667] uppercase tracking-wider block">
+                        Account Email Address
+                      </label>
+                      <div className="relative">
+                        <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7D7667] w-4 h-4" />
+                        <input
+                          type="email"
+                          required
+                          value={authEmail}
+                          onChange={(e) => setAuthEmail(e.target.value)}
+                          placeholder="traveler@wanderai.com"
+                          className="w-full pl-11 pr-4 py-3 bg-[#F9F8F6] border border-[#E5E1D8] rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#D4A373]/30 focus:border-[#D4A373] text-sm placeholder-[#7D7667]/50 transition-all font-medium text-[#33332D]"
+                        />
+                      </div>
+                    </div>
 
-                <div className="space-y-2.5 pt-3 border-t border-[#DCD7CC]/60">
-                  <button
-                    type="button"
-                    onClick={handleGoogleSignIn}
-                    disabled={authLoading}
-                    className="w-full bg-white hover:bg-[#F9F8F6] text-[#33332D] font-bold py-2.5 px-4 rounded-xl border border-[#DCD7CC] shadow-sm flex items-center justify-center gap-2.5 transition-all cursor-pointer text-sm"
-                  >
-                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-                    </svg>
-                    <span>Sign in with Google</span>
-                  </button>
+                    <button
+                      type="submit"
+                      disabled={authLoading}
+                      className="w-full bg-[#5A5A40] hover:bg-[#4A4A33] text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all duration-150 disabled:opacity-75 cursor-pointer text-sm tracking-wide"
+                    >
+                      {authLoading ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        "Send Reset Link"
+                      )}
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={handleGuestContinue}
-                    disabled={authLoading}
-                    className="w-full bg-[#F5F2ED] hover:bg-[#EAE7E0] text-[#5A5A40] font-bold py-2.5 px-4 rounded-xl border border-[#E5E1D8] flex items-center justify-center gap-2 transition-all cursor-pointer text-sm"
-                  >
-                    <User className="w-4 h-4 shrink-0" />
-                    <span>Continue as Guest</span>
-                  </button>
-                </div>
+                    <div className="text-center pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsPasswordResetMode(false);
+                          setAuthError(null);
+                          setResetSuccessMessage(null);
+                        }}
+                        className="text-xs text-[#5A5A40] hover:text-[#33332D] font-bold underline transition-colors cursor-pointer inline-flex items-center gap-1"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Back to Sign In</span>
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  /* Standard Login or Register Form */
+                  <form onSubmit={handleAuthSubmit} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-[#7D7667] uppercase tracking-wider block">
+                        Email Address
+                      </label>
+                      <div className="relative">
+                        <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7D7667] w-4 h-4" />
+                        <input
+                          type="email"
+                          required
+                          value={authEmail}
+                          onChange={(e) => setAuthEmail(e.target.value)}
+                          placeholder="traveler@wanderai.com"
+                          className="w-full pl-11 pr-4 py-3 bg-[#F9F8F6] border border-[#E5E1D8] rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#D4A373]/30 focus:border-[#D4A373] text-sm placeholder-[#7D7667]/50 transition-all font-medium text-[#33332D]"
+                        />
+                      </div>
+                    </div>
 
-                <div className="text-center pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsRegisterMode(!isRegisterMode);
-                      setAuthError(null);
-                    }}
-                    className="text-xs text-[#D4A373] hover:text-[#C29262] font-bold underline transition-colors cursor-pointer"
-                  >
-                    {isRegisterMode ? "Already have an account? Sign In" : "New to WanderAI? Create a free account"}
-                  </button>
-                </div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-[#7D7667] uppercase tracking-wider block">
+                          Password
+                        </label>
+                        {!isRegisterMode && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsPasswordResetMode(true);
+                              setAuthError(null);
+                              setResetSuccessMessage(null);
+                            }}
+                            className="text-[11px] text-[#D4A373] hover:text-[#C29262] font-semibold transition-colors cursor-pointer"
+                          >
+                            Forgot password?
+                          </button>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7D7667] w-4 h-4" />
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          required
+                          minLength={6}
+                          value={authPassword}
+                          onChange={(e) => setAuthPassword(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full pl-11 pr-11 py-3 bg-[#F9F8F6] border border-[#E5E1D8] rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#D4A373]/30 focus:border-[#D4A373] text-sm placeholder-[#7D7667]/50 transition-all font-medium text-[#33332D]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#7D7667] hover:text-[#33332D] transition-colors p-1"
+                          title={showPassword ? "Hide password" : "Show password"}
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={authLoading}
+                      className="w-full bg-[#5A5A40] hover:bg-[#4A4A33] text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all duration-150 disabled:opacity-75 cursor-pointer text-sm tracking-wide"
+                    >
+                      {authLoading ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : isRegisterMode ? (
+                        "Create Free Account"
+                      ) : (
+                        "Sign In to WanderAI"
+                      )}
+                    </button>
+                  </form>
+                )}
+
+                {/* Third-Party & Guest Options */}
+                {!isPasswordResetMode && (
+                  <>
+                    <div className="relative flex items-center py-1">
+                      <div className="flex-grow border-t border-[#DCD7CC]/60"></div>
+                      <span className="shrink-0 mx-3 text-[10px] font-extrabold text-[#7D7667] uppercase tracking-wider bg-white px-2">
+                        or quick access
+                      </span>
+                      <div className="flex-grow border-t border-[#DCD7CC]/60"></div>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      <button
+                        type="button"
+                        onClick={handleGoogleSignIn}
+                        disabled={authLoading}
+                        className="w-full bg-white hover:bg-[#F9F8F6] text-[#33332D] font-bold py-2.5 px-4 rounded-xl border border-[#DCD7CC] shadow-2xs flex items-center justify-center gap-2.5 transition-all cursor-pointer text-sm"
+                      >
+                        <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                        </svg>
+                        <span>Continue with Google</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleGuestContinue}
+                        disabled={authLoading}
+                        className="w-full bg-[#F5F2ED] hover:bg-[#EAE7E0] text-[#5A5A40] font-bold py-2.5 px-4 rounded-xl border border-[#E5E1D8] flex items-center justify-center gap-2 transition-all cursor-pointer text-sm"
+                      >
+                        <User className="w-4 h-4 shrink-0 text-[#7D7667]" />
+                        <span>Continue as Guest</span>
+                        <span className="text-[10px] font-bold text-[#D4A373] bg-[#FAEED1] px-1.5 py-0.5 rounded ml-auto">
+                          No Sign Up Required
+                        </span>
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* Footer mode toggle note */}
+                {!isPasswordResetMode && (
+                  <div className="text-center pt-2 border-t border-[#DCD7CC]/40">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRegisterMode(!isRegisterMode);
+                        setAuthError(null);
+                        setResetSuccessMessage(null);
+                      }}
+                      className="text-xs text-[#D4A373] hover:text-[#C29262] font-bold underline transition-colors cursor-pointer"
+                    >
+                      {isRegisterMode
+                        ? "Already have an account? Sign In"
+                        : "Don't have an account yet? Create one for free"}
+                    </button>
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>
