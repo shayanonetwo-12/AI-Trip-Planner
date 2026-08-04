@@ -5,10 +5,19 @@ import { TransportationGuide } from "../firebase";
 interface TransportGuideCardProps {
   transport?: TransportationGuide;
   destination: string;
+  currencySymbol?: string;
+  selectedCurrency?: string;
 }
 
-export default function TransportGuideCard({ transport, destination }: TransportGuideCardProps) {
+export default function TransportGuideCard({
+  transport,
+  destination,
+  currencySymbol,
+  selectedCurrency = "USD"
+}: TransportGuideCardProps) {
   if (!transport) return null;
+
+  const symbol = currencySymbol || (selectedCurrency === "PKR" ? "Rs" : selectedCurrency === "EUR" ? "€" : selectedCurrency === "GBP" ? "£" : selectedCurrency === "INR" ? "₹" : selectedCurrency === "JPY" ? "¥" : selectedCurrency === "CAD" ? "C$" : selectedCurrency === "AUD" ? "A$" : selectedCurrency === "AED" ? "AED" : "$");
 
   return (
     <div className="bg-white rounded-2xl border border-[#DCD7CC] shadow-sm p-5 space-y-4">
@@ -69,12 +78,14 @@ export default function TransportGuideCard({ transport, destination }: Transport
           </span>
           <div className="flex items-baseline gap-1.5">
             <span className="font-mono font-bold text-2xl text-[#5A5A40]">
-              ${transport.estimatedDailyCabCost || 30}
+              {symbol}{transport.estimatedDailyCabCost ? transport.estimatedDailyCabCost.toLocaleString() : 30}
             </span>
-            <span className="text-xs text-[#7D7667] font-semibold">/ day</span>
+            <span className="text-xs text-[#7D7667] font-semibold">
+              {selectedCurrency} / day
+            </span>
           </div>
           <p className="text-xs text-[#7D7667] leading-relaxed">
-            Covers 3–4 city rides or rideshares between top attractions.
+            Covers 3–4 city rides or rideshares between top attractions in {selectedCurrency}.
           </p>
         </div>
 

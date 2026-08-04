@@ -31,7 +31,8 @@ import {
   User,
   Coins,
   DollarSign,
-  Globe
+  Globe,
+  ChevronDown
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { motion, AnimatePresence } from "motion/react";
@@ -65,6 +66,7 @@ import { SAMPLE_ITINERARIES } from "./data/samples";
 // Supported Currencies List
 const CURRENCY_OPTIONS = [
   { code: "USD", symbol: "$", label: "USD ($) - US Dollar" },
+  { code: "PKR", symbol: "Rs", label: "PKR (Rs) - Pakistani Rupee" },
   { code: "EUR", symbol: "€", label: "EUR (€) - Euro" },
   { code: "GBP", symbol: "£", label: "GBP (£) - British Pound" },
   { code: "INR", symbol: "₹", label: "INR (₹) - Indian Rupee" },
@@ -108,6 +110,8 @@ export default function App() {
   const [destination, setDestination] = useState("");
   const [days, setDays] = useState("3");
   const [selectedCurrency, setSelectedCurrency] = useState("USD");
+  const [isCurrencyMenuOpen, setIsCurrencyMenuOpen] = useState(false);
+  const [customBudget, setCustomBudget] = useState("");
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [hotelPreference, setHotelPreference] = useState("Mid-Range & Comfort");
   const [transportPreference, setTransportPreference] = useState("Cabs & Rideshares (Uber / Taxis)");
@@ -368,13 +372,15 @@ export default function App() {
         interestsQuery,
         hotelPreference,
         transportPreference,
-        selectedCurrency
+        selectedCurrency,
+        customBudget
       );
 
       // Seed localStorage with realistic budget breakdown if available
       if (data.budgetBreakdown) {
         const key = `wanderai_budget_${data.destination.replace(/[^a-z0-9]/gi, "_").toLowerCase()}`;
         const totalOther = (data.budgetBreakdown.cabAndTransitTotal || 0) + (data.budgetBreakdown.miscellaneousTotal || 0);
+        const userLimit = customBudget && !isNaN(parseFloat(customBudget)) ? parseFloat(customBudget) : null;
         localStorage.setItem(
           key,
           JSON.stringify({
@@ -383,7 +389,7 @@ export default function App() {
             foodPerDay: data.budgetBreakdown.foodAndDiningPerDay || 50,
             activities: data.budgetBreakdown.attractionsAndActivitiesTotal || 150,
             other: totalOther,
-            budgetLimit: Math.ceil((data.budgetBreakdown.grandTotalEstimated * 1.1) / 50) * 50 || 1500,
+            budgetLimit: userLimit || Math.ceil((data.budgetBreakdown.grandTotalEstimated * 1.1) / 50) * 50 || 1500,
             currency: data.budgetBreakdown.currencyCode || selectedCurrency,
           })
         );
@@ -1012,6 +1018,59 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+            {/* Global Currency Selector Button */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsCurrencyMenuOpen(!isCurrencyMenuOpen)}
+                className="inline-flex items-center gap-1.5 bg-[#FAEED1] hover:bg-[#F5E6BE] text-[#5A5A40] font-bold px-3 py-1.5 rounded-xl text-xs border border-[#D4A373]/50 cursor-pointer transition-all duration-200 shadow-2xs"
+                title="Set currency across all features"
+              >
+                <Globe className="w-3.5 h-3.5 text-[#D4A373]" />
+                <span>Currency: <strong className="text-[#33332D]">{selectedCurrency}</strong></span>
+                <span className="text-[10px] font-mono font-bold text-[#7D7667] bg-white/70 px-1 py-0.2 rounded">
+                  {CURRENCY_OPTIONS.find((c) => c.code === selectedCurrency)?.symbol || "$"}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-[#7D7667]" />
+              </button>
+
+              {isCurrencyMenuOpen && (
+                <div className="absolute right-0 mt-2 w-64 bg-white border border-[#DCD7CC] rounded-2xl shadow-xl p-2 z-[2000] space-y-1 animate-in fade-in duration-150">
+                  <div className="px-3 py-1.5 text-[10px] font-extrabold text-[#7D7667] uppercase tracking-wider border-b border-[#E5E1D8] flex justify-between items-center">
+                    <span>Select App Currency</span>
+                    <span className="text-[#5A5A40] font-bold">11 Currencies</span>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto space-y-0.5 pt-1 pr-0.5">
+                    {CURRENCY_OPTIONS.map((curr) => (
+                      <button
+                        key={curr.code}
+                        type="button"
+                        onClick={() => {
+                          setSelectedCurrency(curr.code);
+                          setIsCurrencyMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+                          selectedCurrency === curr.code
+                            ? "bg-[#E9EDC9] text-[#5A5A40] font-bold border border-[#CCD5AE]/60"
+                            : "text-[#33332D] hover:bg-[#F5F2ED]"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <span className="font-mono text-xs font-bold text-[#D4A373] min-w-[24px] text-center bg-[#FAEED1]/60 px-1.5 py-0.5 rounded-md">
+                            {curr.symbol}
+                          </span>
+                          <span>{curr.code}</span>
+                        </span>
+                        <span className="text-[10px] text-[#7D7667]">
+                          {curr.label.split("-")[1]?.trim() || curr.code}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Auth Indicator and Sign In / Out */}
             {isAnonymous ? (
               <button
@@ -1118,25 +1177,56 @@ export default function App() {
                     <Coins className="w-3.5 h-3.5 text-[#5A5A40]" /> Preferred Trip Currency
                   </span>
                   <span className="text-[10px] text-[#5A5A40] font-bold bg-[#E9EDC9] px-2 py-0.5 rounded-md">
-                    Set before planning
+                    Synced App-wide
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsCurrencyMenuOpen(!isCurrencyMenuOpen)}
+                  className="w-full bg-[#F9F8F6] hover:bg-[#F5F2ED] border border-[#E5E1D8] text-[#33332D] text-xs font-bold rounded-xl px-3.5 py-2.5 flex items-center justify-between cursor-pointer transition-all shadow-2xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-[#D4A373]" />
+                    <span>{CURRENCY_OPTIONS.find((c) => c.code === selectedCurrency)?.label}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-extrabold bg-[#E5E1D8]/60 text-[#5A5A40] px-2 py-0.5 rounded-lg font-mono">
+                      {CURRENCY_OPTIONS.find((c) => c.code === selectedCurrency)?.symbol || "$"}
+                    </span>
+                    <ChevronDown className="w-3.5 h-3.5 text-[#7D7667]" />
+                  </div>
+                </button>
+              </div>
+
+              {/* Target Total Budget (Optional) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-[#7D7667] uppercase tracking-wider flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <DollarSign className="w-3.5 h-3.5 text-[#5A5A40]" /> Target Total Trip Budget
+                  </span>
+                  <span className="text-[10px] text-[#7D7667]">
+                    Optional Limit
                   </span>
                 </label>
                 <div className="relative">
-                  <select
-                    value={selectedCurrency}
-                    onChange={(e) => setSelectedCurrency(e.target.value)}
-                    className="w-full bg-[#F9F8F6] border border-[#E5E1D8] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#D4A373]/30 focus:border-[#D4A373] text-[#33332D] text-xs font-bold rounded-xl px-3.5 py-2.5 appearance-none cursor-pointer pr-10 transition-all"
-                  >
-                    {CURRENCY_OPTIONS.map((curr) => (
-                      <option key={curr.code} value={curr.code}>
-                        {curr.label}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#5A5A40] text-xs font-extrabold bg-[#E5E1D8]/60 px-2 py-0.5 rounded-lg">
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder={`e.g. 150000 (${CURRENCY_OPTIONS.find((c) => c.code === selectedCurrency)?.symbol || "$"})`}
+                    value={customBudget}
+                    onChange={(e) => setCustomBudget(e.target.value)}
+                    className="w-full bg-[#F9F8F6] border border-[#E5E1D8] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#D4A373]/30 focus:border-[#D4A373] text-[#33332D] text-xs font-bold rounded-xl pl-9 pr-14 py-2.5 transition-all"
+                  />
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5A40] font-bold text-xs">
                     {CURRENCY_OPTIONS.find((c) => c.code === selectedCurrency)?.symbol || "$"}
                   </div>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#7D7667] font-semibold">
+                    {selectedCurrency}
+                  </span>
                 </div>
+                <p className="text-[10px] text-[#7D7667]">
+                  If set, WanderAI will tailor hotels, dining, and transit to stay within this limit.
+                </p>
               </div>
 
               {/* Number of Days Selector */}
@@ -1310,6 +1400,7 @@ export default function App() {
           <BudgetTracker 
             destinationName={activeItinerary ? activeItinerary.destination : (destination || "Your Trip")}
             durationDays={activeItinerary ? activeItinerary.days.length : days}
+            selectedCurrency={selectedCurrency}
           />
         </section>
 
@@ -1515,6 +1606,8 @@ export default function App() {
                 <TransportGuideCard
                   transport={activeItinerary.transportation}
                   destination={activeItinerary.destination}
+                  currencySymbol={activeItinerary.budgetBreakdown?.currencySymbol}
+                  selectedCurrency={selectedCurrency}
                 />
 
                 {/* Day Tabs Selection */}

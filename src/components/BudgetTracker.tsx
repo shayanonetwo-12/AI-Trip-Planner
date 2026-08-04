@@ -4,6 +4,7 @@ import { DollarSign, Plane, Hotel, Utensils, HelpCircle, TrendingUp, Sparkles, I
 interface BudgetTrackerProps {
   destinationName?: string;
   durationDays?: number;
+  selectedCurrency?: string;
 }
 
 interface Currency {
@@ -15,13 +16,19 @@ interface Currency {
 
 const CURRENCIES: Currency[] = [
   { code: "USD", symbol: "$", label: "USD", rateFromUSD: 1.0 },
+  { code: "PKR", symbol: "Rs", label: "PKR", rateFromUSD: 278.5 },
   { code: "EUR", symbol: "€", label: "EURO", rateFromUSD: 0.92 },
   { code: "GBP", symbol: "£", label: "POUNDS", rateFromUSD: 0.78 },
   { code: "INR", symbol: "₹", label: "INR", rateFromUSD: 83.5 },
-  { code: "PKR", symbol: "Rs", label: "PKR", rateFromUSD: 278.5 },
+  { code: "JPY", symbol: "¥", label: "YEN", rateFromUSD: 155.0 },
+  { code: "CAD", symbol: "C$", label: "CAD", rateFromUSD: 1.38 },
+  { code: "AUD", symbol: "A$", label: "AUD", rateFromUSD: 1.52 },
+  { code: "AED", symbol: "AED", label: "AED", rateFromUSD: 3.67 },
+  { code: "SGD", symbol: "S$", label: "SGD", rateFromUSD: 1.35 },
+  { code: "CHF", symbol: "CHF", label: "CHF", rateFromUSD: 0.88 },
 ];
 
-export default function BudgetTracker({ destinationName = "Your Trip", durationDays = 3 }: BudgetTrackerProps) {
+export default function BudgetTracker({ destinationName = "Your Trip", durationDays = 3, selectedCurrency }: BudgetTrackerProps) {
   // Budget categories state (stored in the active currency)
   const [flights, setFlights] = useState<number>(0);
   const [hotelPerNight, setHotelPerNight] = useState<number>(0);
@@ -34,6 +41,13 @@ export default function BudgetTracker({ destinationName = "Your Trip", durationD
 
   // Active currency
   const [activeCurrency, setActiveCurrency] = useState<string>("USD");
+
+  // Synchronize currency when selectedCurrency prop changes globally
+  useEffect(() => {
+    if (selectedCurrency && selectedCurrency !== activeCurrency) {
+      handleCurrencyChange(selectedCurrency);
+    }
+  }, [selectedCurrency]);
 
   // Load from localStorage on mount or when destination changes
   useEffect(() => {
@@ -266,26 +280,19 @@ export default function BudgetTracker({ destinationName = "Your Trip", durationD
         </p>
       </div>
 
-      {/* Currency Selector Button Row */}
-      <div className="bg-[#F5F2ED] border border-[#E5E1D8]/70 p-1.5 rounded-2xl flex flex-col gap-1.5">
-        <span className="text-[9px] font-bold text-[#7D7667] uppercase tracking-wider px-1.5 pt-0.5">
-          Select Currency
+      {/* Synced Currency Indicator Banner */}
+      <div className="bg-[#FAEED1]/50 border border-[#CCD5AE]/60 px-3.5 py-2 rounded-xl flex items-center justify-between">
+        <span className="text-[10px] font-extrabold text-[#7D7667] uppercase tracking-wider flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-[#D4A373] animate-pulse"></span>
+          Active Currency
         </span>
-        <div className="grid grid-cols-5 gap-1">
-          {CURRENCIES.map((c) => (
-            <button
-              key={c.code}
-              onClick={() => handleCurrencyChange(c.code)}
-              className={`py-1.5 px-1 rounded-xl text-[10px] font-extrabold transition-all text-center flex flex-col items-center justify-center cursor-pointer ${
-                activeCurrency === c.code
-                  ? "bg-white text-[#5A5A40] shadow-sm scale-[1.03] border border-[#DCD7CC]/40"
-                  : "text-[#7D7667] hover:text-[#33332D] hover:bg-[#EAE7E0]"
-              }`}
-            >
-              <span className="text-xs leading-none mb-0.5">{c.symbol}</span>
-              <span className="text-[8px] tracking-tight text-[#7D7667] font-bold uppercase">{c.label}</span>
-            </button>
-          ))}
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-bold text-[#5A5A40] bg-white px-2 py-0.5 rounded-md border border-[#DCD7CC]/60 shadow-2xs">
+            {currentCurrencyObj.symbol} {currentCurrencyObj.code}
+          </span>
+          <span className="text-[10px] text-[#7D7667] font-semibold">
+            (Synced app-wide)
+          </span>
         </div>
       </div>
 

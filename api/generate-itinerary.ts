@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI } from "@google/genai";
 
+// Helper function to safely parse Gemini JSON responses with auto-repair
 function parseGeminiJsonResponse(text: string): any {
   if (!text) {
     throw new Error("Empty response received from AI model.");
@@ -9,28 +10,67 @@ function parseGeminiJsonResponse(text: string): any {
   let cleaned = text.trim();
 
   // Strip markdown code block wrappers if present
-  if (cleaned.includes("```")) {
-    cleaned = cleaned.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
-  }
+  cleaned = cleaned.replace(/^```(?:json)?/gi, "").replace(/```$/g, "").trim();
+  if (cleaned.startsWith("```json")) cleaned = cleaned.replace(/^```json/i, "");
+  if (cleaned.startsWith("```")) cleaned = cleaned.replace(/^```/, "");
+  if (cleaned.endsWith("```")) cleaned = cleaned.replace(/```$/, "");
+  cleaned = cleaned.trim();
 
-  // Attempt direct JSON parse
+  // Fast path: direct parse
   try {
     return JSON.parse(cleaned);
-  } catch (e) {
-    // Attempt regex extraction of JSON object { ... }
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
+  } catch (e1) {
+    // Extract outermost JSON object or array
+    let candidate = cleaned;
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      candidate = cleaned.substring(firstBrace, lastBrace + 1);
       try {
-        return JSON.parse(match[0]);
-      } catch (innerError) {
-        // Fall through
+        return JSON.parse(candidate);
+      } catch (e2) {
+        // Continue cleaning candidate
       }
     }
-    throw new Error("The AI model response could not be parsed as JSON. Please try generating again.");
+
+    // Sanitize common LLM syntax defects:
+    // 1. Remove JavaScript single-line and multi-line comments
+    let sanitized = candidate
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|\s)\/\/[^\n]*/g, "");
+
+    // 2. Remove trailing commas before } or ]
+    sanitized = sanitized.replace(/,(\s*[\}\]])/g, "$1");
+
+    try {
+      return JSON.parse(sanitized);
+    } catch (e3) {
+      // 3. Attempt string quote and brace balancing repair for truncated output
+      let repaired = sanitized;
+      const quoteCount = (repaired.match(/(?<!\\)"/g) || []).length;
+      if (quoteCount % 2 !== 0) {
+        repaired += '"';
+      }
+
+      const openBraces = (repaired.match(/\{/g) || []).length;
+      const closeBraces = (repaired.match(/\}/g) || []).length;
+      const openBrackets = (repaired.match(/\[/g) || []).length;
+      const closeBrackets = (repaired.match(/\]/g) || []).length;
+
+      for (let i = 0; i < openBrackets - closeBrackets; i++) repaired += "]";
+      for (let i = 0; i < openBraces - closeBraces; i++) repaired += "}";
+
+      try {
+        return JSON.parse(repaired);
+      } catch (e4) {
+        console.error("Failed to parse Gemini JSON response. Snippet:", text.slice(0, 300));
+        throw new Error("The AI model response could not be parsed as JSON. Please try generating again.");
+      }
+    }
   }
 }
 
-const FALLBACK_MODELS = ["gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash"];
+const FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash"];
 
 async function generateWithFallback(ai: GoogleGenAI, params: any) {
   let lastError: any = null;
@@ -82,7 +122,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { destination, days, interests, hotelPreference, transportPreference, currency } = req.body || {};
+    const { destination, days, interests, hotelPreference, transportPreference, currency, targetBudget } = req.body || {};
 
     if (!destination || !days) {
       return res.status(400).json({ error: "Destination and days are required." });
@@ -96,6 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const hotelTierLabel = hotelPreference || "Mid-Range & Comfort";
     const transportModeLabel = transportPreference || "Cabs & Rideshares (Uber / Local Taxis)";
     const userCurrency = currency || "USD";
+    const userTargetBudget = targetBudget ? String(targetBudget).trim() : null;
 
     const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     if (!apiKey) {
@@ -114,11 +155,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       - Requested Hotel Level: ${hotelTierLabel}
       - Requested Transport Mode: ${transportModeLabel}
       - Preferred Currency: ${userCurrency}
+      ${userTargetBudget ? `- TARGET USER MAXIMUM TOTAL BUDGET: ${userTargetBudget} ${userCurrency}` : ""}
 
-      CRITICAL CURRENCY & BUDGET INSTRUCTIONS:
-      1. All prices (hotel cost per night, flight cost, daily food budget, daily cab/transit cost, attractions total, and grand total) MUST be calculated and reported in ${userCurrency}.
-      2. Set "currencyCode": "${userCurrency}" and set "currencySymbol" appropriately (e.g. "$" for USD, "€" for EUR, "£" for GBP, "₹" for INR, "¥" for JPY, "C$" for CAD, "A$" for AUD, "AED" for AED).
-      3. Tailor all prices specifically to realistic cost standards for ${destination} converted into ${userCurrency}.
+      CRITICAL CURRENCY & BUDGET PLANNING INSTRUCTIONS:
+      1. All prices across the entire response (including hotel cost per night, flight cost, daily food budget, daily cab and taxi cost in "transportation.estimatedDailyCabCost", attractions total, and grand total) MUST be strictly calculated and reported in ${userCurrency}.
+      2. Set "currencyCode": "${userCurrency}" and set "currencySymbol" appropriately (e.g. "$" for USD, "Rs" for PKR, "€" for EUR, "£" for GBP, "₹" for INR, "¥" for JPY, "C$" for CAD, "A$" for AUD, "AED" for AED, "S$" for SGD, "CHF" for CHF).
+      3. Tailor all prices (including daily cab fares and accommodation) realistically to local cost standards in ${destination} converted directly to ${userCurrency}.
+      ${userTargetBudget ? `4. STRICT BUDGET PLANNING & APOLOGY REQUIREMENT:
+      - The user has set a target trip budget constraint of ${userTargetBudget} ${userCurrency}.
+      - Try your absolute best to choose hotels, dining, local cabs, and activities so that the total estimated cost (grandTotalEstimated) fits strictly WITHIN or equal to ${userTargetBudget} ${userCurrency}.
+      - IF IT IS POSSIBLE to stay within ${userTargetBudget} ${userCurrency}, start the "summary" string with a brief confirmation note, e.g.: "Great news! We have successfully crafted your entire ${parsedDays}-day itinerary for ${destination} strictly within your budget of ${userTargetBudget} ${userCurrency}."
+      - IF IT IS NOT POSSIBLE to fit within ${userTargetBudget} ${userCurrency} due to high baseline market prices (e.g. flight or hotel costs in ${destination}), plan the itinerary as close/near to ${userTargetBudget} ${userCurrency} as possible, AND YOU MUST INCLUDE AN EXPLICIT APOLOGY LINE at the start of the "summary" string, e.g.: "We sincerely apologize, but due to baseline market costs in ${destination}, we couldn't keep the total trip under ${userTargetBudget} ${userCurrency}. We have planned the closest possible budget-friendly itinerary at [estimated total] ${userCurrency} without compromising your safety and experience."` : ""}
 
       You MUST respond with a JSON object matching this exact schema:
       {
